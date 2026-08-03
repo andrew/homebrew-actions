@@ -23,7 +23,7 @@ Run the setup action after checkout, then reference the installed action through
 ```yaml
 steps:
   - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-  - uses: andrew/homebrew-actions@<commit-sha>
+  - uses: andrew/homebrew-actions@aa4182ee403d1b8b74dbe86db838c97d23772274
   - uses: ./.brew-actions/pre-commit-action
 ```
 
