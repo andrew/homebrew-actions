@@ -1,0 +1,72 @@
+name: Tests
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  ruby:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b
+        with:
+          ruby-version: "4.0"
+      - run: ruby -Itest test/setup_actions_test.rb
+      - run: ruby -Itest test/formulae_test.rb
+
+  formulae:
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: brew tap --custom-remote andrew/actions "file://$GITHUB_WORKSPACE"
+      - run: brew audit --strict --tap andrew/actions
+      - run: >-
+          brew install
+          andrew/actions/actions-checkout
+          andrew/actions/actions-cache
+          andrew/actions/pre-commit-action
+          andrew/actions/actions-first-interaction
+      - run: >-
+          brew test
+          andrew/actions/actions-checkout
+          andrew/actions/actions-cache
+          andrew/actions/pre-commit-action
+          andrew/actions/actions-first-interaction
+
+  integration:
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: brew tap --custom-remote andrew/actions "file://$GITHUB_WORKSPACE"
+      - uses: ./
+        with:
+          brewfile: examples/Actionfile
+      - uses: ./.brew-actions/pre-commit-action
+
+  zizmor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: zizmorcore/zizmor-action@6fc4b006235f201fdab3722e17240ab420d580e5

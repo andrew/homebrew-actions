@@ -1,0 +1,105 @@
+#!/usr/bin/env ruby
+
+require "fileutils"
+require "open3"
+require "pathname"
+require "set"
+
+class ActionsSetup
+  attr_reader :brew, :brewfile, :destination, :stdout
+
+  def initialize(brewfile:, destination:, brew: "brew", stdout: $stdout)
+    @brewfile = Pathname.new(brewfile).expand_path
+    @destination = Pathname.new(destination).expand_path
+    @brew = brew
+    @stdout = stdout
+    @prefixes = {}
+  end
+
+  def run
+    raise "Actionfile not found: #{brewfile}" unless brewfile.file?
+
+    capture(brew, "bundle", "--file=#{brewfile}")
+    formulae = action_formulae
+    raise "No action formulae found in #{brewfile}" if formulae.empty?
+
+    FileUtils.mkdir_p(destination)
+    formulae.each { |formula| copy_formula(formula) }
+  end
+
+  def action_formulae
+    queue = brewfile_formulae
+    seen = Set.new
+    actions = []
+
+    until queue.empty?
+      formula = queue.shift
+      next unless seen.add?(formula)
+
+      unless action_formula?(formula)
+        raise "Formula does not contain an action definition: #{formula}" if brewfile_formulae.include?(formula)
+        next
+      end
+
+      actions << formula
+      queue.concat(dependencies(formula))
+    end
+
+    actions
+  end
+
+  def brewfile_formulae
+    @brewfile_formulae ||= brewfile.each_line.filter_map do |line|
+      match = line.match(/^\s*brew\s+(["'])([^"']+)\1/)
+      match && match[2]
+    end
+  end
+
+  def dependencies(formula)
+    capture(brew, "deps", "--formula", "--direct", "--full-name", formula)
+      .lines
+      .map(&:strip)
+      .reject(&:empty?)
+      .select { |dependency| action_formula?(dependency) }
+  end
+
+  def action_formula?(formula)
+    prefix = formula_prefix(formula)
+    Dir.glob(prefix.join("**", "action.{yml,yaml}").to_s).any?
+  rescue RuntimeError
+    false
+  end
+
+  def formula_prefix(formula)
+    @prefixes[formula] ||= Pathname.new(capture(brew, "--prefix", formula).strip)
+  end
+
+  def copy_formula(formula)
+    short_name = formula.split("/").last
+    unless short_name.match?(/\A[a-z0-9][a-z0-9@+_.-]*\z/)
+      raise "Unsafe formula name: #{short_name.inspect}"
+    end
+
+    target = destination.join(short_name)
+    FileUtils.rm_rf(target)
+    FileUtils.mkdir_p(target)
+    sources = formula_prefix(formula).children.map(&:to_s)
+    FileUtils.cp_r(sources, target, preserve: true)
+    stdout.puts "Installed #{short_name} in #{target}"
+  end
+
+  def capture(*command)
+    output, error, status = Open3.capture3(*command)
+    return output if status.success?
+
+    message = error.empty? ? output : error
+    raise "Command failed: #{command.join(" ")}\n#{message}"
+  end
+end
+
+if $PROGRAM_NAME == __FILE__
+  workspace = Pathname.new(ENV.fetch("GITHUB_WORKSPACE", Dir.pwd))
+  brewfile = workspace.join(ENV.fetch("ACTIONS_BREWFILE", ".github/Actionfile"))
+  destination = workspace.join(ENV.fetch("ACTIONS_DIRECTORY", ".brew-actions"))
+  ActionsSetup.new(brewfile: brewfile, destination: destination).run
+end

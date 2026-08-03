@@ -1,0 +1,2 @@
+tap "andrew/actions"
+brew "andrew/actions/pre-commit-action"

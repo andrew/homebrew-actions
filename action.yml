@@ -1,0 +1,18 @@
+name: Setup Homebrew actions
+description: Install GitHub Actions from a Homebrew tap into the current workspace
+inputs:
+  brewfile:
+    description: Brewfile containing the action formulae to install
+    default: .github/Actionfile
+  directory:
+    description: Workspace-relative directory for installed actions
+    default: .brew-actions
+runs:
+  using: composite
+  steps:
+    - name: Install actions
+      shell: bash
+      env:
+        ACTIONS_BREWFILE: ${{ inputs.brewfile }}
+        ACTIONS_DIRECTORY: ${{ inputs.directory }}
+      run: brew ruby "$GITHUB_ACTION_PATH/bin/setup-actions"
