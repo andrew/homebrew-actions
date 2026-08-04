@@ -34,7 +34,7 @@ class ActionFormulaTest < Minitest::Test
     assert_match 'depends_on "actions-github-script"', rb
     assert_match 'inreplace "action.yml"', rb
     assert_match '"uses: actions/github-script@abc"', rb
-    assert_match '"uses: ./../actions-github-script"', rb
+    assert_match '"uses: $/../actions-github-script"', rb
   end
 
   def test_composite_with_subdir_keeps_path_in_rewrite
@@ -43,7 +43,7 @@ class ActionFormulaTest < Minitest::Test
                          ref: "v3.5.0", raw: "uses: gradle/actions/setup-gradle@v3.5.0" }])
     rb = f.to_ruby
     assert_match 'depends_on "gradle-actions"', rb
-    assert_match '"uses: ./../gradle-actions/setup-gradle"', rb
+    assert_match '"uses: $/../gradle-actions/setup-gradle"', rb
   end
 
   def test_duplicate_uses_collapse_to_one_dependency

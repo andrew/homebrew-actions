@@ -11,11 +11,11 @@ class PreCommitAction < Formula
   def install
     inreplace "action.yml",
       "uses: actions/cache@v4",
-      "uses: ./../actions-cache"
+      "uses: $/../actions-cache"
     prefix.install Dir.children(".")
   end
 
   test do
-    assert_match "uses: ./../actions-cache", (prefix/"action.yml").read
+    assert_match "uses: $/../actions-cache", (prefix/"action.yml").read
   end
 end
