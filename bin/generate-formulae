@@ -12,10 +12,10 @@ require "yaml"
 
 class ActionFormula
   attr_reader :owner, :repo, :version, :sha, :sha256, :description, :license,
-              :action_file, :using, :uses
+              :action_file, :using, :uses, :source_dir
 
   def initialize(owner:, repo:, version:, sha:, sha256:, description:, license:,
-                 action_file:, using:, uses:)
+                 action_file:, using:, uses:, source_dir: nil)
     @owner = owner
     @repo = repo
     @version = version
@@ -26,6 +26,7 @@ class ActionFormula
     @action_file = action_file
     @using = using
     @uses = uses
+    @source_dir = source_dir
   end
 
   def name
@@ -137,7 +138,8 @@ class FormulaGenerator
       license: pkg["normalized_licenses"]&.first,
       action_file: action_file,
       using: action.dig("runs", "using"),
-      uses: parse_uses(action)
+      uses: parse_uses(action),
+      source_dir: src
     )
   end
 
@@ -226,6 +228,27 @@ class FormulaGenerator
     warn "runs.using: #{by_using.sort.map { |k, v| "#{k}=#{v}" }.join(" ")}"
     warn "dependency edges: #{formulae.sum { |f| f.uses.length }} into #{deps.length} formulae"
     warn "unclosed dependencies: #{unclosed.empty? ? "none" : unclosed.join(", ")}"
+    zizmor_report
+  end
+
+  def zizmor_report
+    inputs = formulae.map { |f| File.join(f.source_dir, f.action_file) }
+    out, err, status = Open3.capture3("zizmor", "--format", "json", "--persona", "regular", *inputs)
+    unless status.success? || status.exitstatus == 14
+      warn "zizmor: #{err.lines.first&.strip || status}"
+      return
+    end
+
+    findings = JSON.parse(out)
+    files = ->(set) { set.map { |f| f.dig("locations", 0, "symbolic", "key", "Local", "verbatim_path") }.uniq.length }
+    high = findings.select { |f| f.dig("determinations", "severity") == "High" && f.dig("determinations", "confidence") == "High" }
+    by_ident = high.group_by { |f| f["ident"] }.transform_values(&:length)
+
+    warn "zizmor #{err[/\d+\.\d+\.\d+/]}: #{findings.length} findings across #{files.call(findings)} actions"
+    warn "  high/high: #{high.length} across #{files.call(high)} actions " \
+         "(#{by_ident.sort.map { |k, v| "#{k}=#{v}" }.join(" ")})"
+  rescue Errno::ENOENT
+    warn "zizmor: not installed, skipping"
   end
 end
 
