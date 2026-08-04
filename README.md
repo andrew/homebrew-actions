@@ -23,7 +23,7 @@ Run the setup action after checkout, then reference the installed action through
 ```yaml
 steps:
   - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-  - uses: andrew/homebrew-actions@aa4182ee403d1b8b74dbe86db838c97d23772274
+  - uses: andrew/homebrew-actions@7def8ee0f83dbb7850e9029c9e0e6ccbafdd209e
   - uses: ./.brew-actions/pre-commit-action
 ```
 
@@ -36,6 +36,15 @@ This repository is an experiment. The larger critical-actions sample found stale
 ```sh
 ruby -Itest test/setup_actions_test.rb
 ruby -Itest test/formulae_test.rb
+ruby -Itest test/generate_formulae_test.rb
+```
+
+## Generating formulae
+
+`bin/generate-formulae` fetches the ecosyste.ms critical actions set, downloads each pinned commit, and writes a formula per action to `Formula/`. It reports the `runs.using` breakdown, dependency edges, unclosed dependencies, and (if zizmor is installed) a findings summary.
+
+```sh
+bin/generate-formulae --output Formula --cache .generate-cache
 ```
 
 ## License
