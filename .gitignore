@@ -1,2 +1,3 @@
 .brew-cache/
 .brew-temp/
+.generate-cache/

@@ -1,0 +1,240 @@
+#!/usr/bin/env ruby
+
+require "digest"
+require "fileutils"
+require "json"
+require "net/http"
+require "open3"
+require "optparse"
+require "tmpdir"
+require "uri"
+require "yaml"
+
+class ActionFormula
+  attr_reader :owner, :repo, :version, :sha, :sha256, :description, :license,
+              :action_file, :using, :uses
+
+  def initialize(owner:, repo:, version:, sha:, sha256:, description:, license:,
+                 action_file:, using:, uses:)
+    @owner = owner
+    @repo = repo
+    @version = version
+    @sha = sha
+    @sha256 = sha256
+    @description = description
+    @license = license
+    @action_file = action_file
+    @using = using
+    @uses = uses
+  end
+
+  def name
+    "#{owner}-#{repo}".tr("/", "-").downcase
+  end
+
+  def class_name
+    name.split(/[-_]/).map { |p| p.sub(/\A[a-z]/, &:upcase) }.join
+  end
+
+  def dependencies
+    uses.map { |u| "#{u[:owner]}-#{u[:repo]}".downcase }.uniq
+  end
+
+  def to_ruby
+    lines = []
+    lines << "class #{class_name} < Formula"
+    lines << "  desc #{description.inspect}" if description
+    lines << "  homepage \"https://github.com/#{owner}/#{repo}\""
+    lines << "  url \"https://codeload.github.com/#{owner}/#{repo}/tar.gz/#{sha}\""
+    lines << "  version #{version.inspect}"
+    lines << "  sha256 #{sha256.inspect}"
+    lines << "  license #{license.inspect}" if license
+    dependencies.each do |dep|
+      lines << ""
+      lines << "  depends_on #{dep.inspect}"
+    end
+    lines << ""
+    lines << "  def install"
+    uses.each do |u|
+      target = "./../#{u[:owner]}-#{u[:repo]}".downcase
+      target += "/#{u[:subdir]}" if u[:subdir]
+      lines << "    inreplace #{action_file.inspect},"
+      lines << "      #{u[:raw].inspect},"
+      lines << "      \"uses: #{target}\""
+    end
+    lines << "    prefix.install Dir.children(\".\")"
+    lines << "  end"
+    lines << ""
+    lines << "  test do"
+    lines << "    assert_path_exists prefix/#{action_file.inspect}"
+    lines << "  end"
+    lines << "end"
+    lines.join("\n") + "\n"
+  end
+end
+
+class FormulaGenerator
+  PACKAGES_URL = "https://packages.ecosyste.ms/api/v1/registries/github%20actions/packages?critical=true&per_page=100"
+
+  attr_reader :output, :cache, :formulae
+
+  def initialize(output:, cache:)
+    @output = File.expand_path(output)
+    @cache = File.expand_path(cache)
+    @formulae = []
+  end
+
+  def run
+    FileUtils.mkdir_p(output)
+    FileUtils.mkdir_p(cache)
+
+    packages.each do |pkg|
+      formula = analyse(pkg)
+      formulae << formula if formula
+    rescue StandardError => e
+      warn "skip #{pkg["name"]}: #{e.message}"
+    end
+
+    formulae.each do |f|
+      File.write(File.join(output, "#{f.name}.rb"), f.to_ruby)
+    end
+
+    report
+  end
+
+  def packages
+    @packages ||= fetch_json(PACKAGES_URL)
+  end
+
+  def analyse(pkg)
+    name = pkg.fetch("name")
+    version = fetch_json(pkg.fetch("latest_version_url"))
+    sha = version.dig("metadata", "sha") || version.dig("related_tag", "sha")
+    unless sha
+      warn "skip #{name}: no commit SHA for #{version["number"]}"
+      return nil
+    end
+
+    owner, repo = name.split("/", 2)
+    archive = download_archive(owner, repo, sha)
+    sha256 = Digest::SHA256.file(archive).hexdigest
+    src = extract(archive)
+
+    action_file = %w[action.yml action.yaml].find { |f| File.exist?(File.join(src, f)) }
+    unless action_file
+      warn "skip #{name}: no action.yml in archive root"
+      return nil
+    end
+    action = YAML.safe_load_file(File.join(src, action_file))
+
+    ActionFormula.new(
+      owner: owner,
+      repo: repo,
+      version: version.fetch("number").delete_prefix("v"),
+      sha: sha,
+      sha256: sha256,
+      description: clean_desc(action["description"] || pkg["description"]),
+      license: pkg["normalized_licenses"]&.first,
+      action_file: action_file,
+      using: action.dig("runs", "using"),
+      uses: parse_uses(action)
+    )
+  end
+
+  def parse_uses(action)
+    return [] unless action.dig("runs", "using") == "composite"
+
+    steps = action.dig("runs", "steps") || []
+    steps.filter_map { |step| parse_ref(step["uses"]) }.uniq { |u| u[:raw] }
+  end
+
+  def parse_ref(ref)
+    return nil if ref.nil? || ref.start_with?("./", "$/", "docker://")
+
+    path, version = ref.split("@", 2)
+    parts = path.split("/")
+    return nil if parts.length < 2
+
+    {
+      owner: parts[0],
+      repo: parts[1],
+      subdir: parts.length > 2 ? parts[2..].join("/") : nil,
+      ref: version,
+      raw: "uses: #{ref}"
+    }
+  end
+
+  def clean_desc(text)
+    return nil unless text
+
+    text = text.gsub(/\s+/, " ").strip.delete_suffix(".")
+    text = text.sub(/\A(a|an|the)\s+/i, "")
+    text.length > 80 ? text[0, 77] + "..." : text
+  end
+
+  def download_archive(owner, repo, sha)
+    path = File.join(cache, "#{owner}-#{repo}-#{sha}.tar.gz")
+    return path if File.exist?(path) && File.size(path).positive?
+
+    url = "https://codeload.github.com/#{owner}/#{repo}/tar.gz/#{sha}"
+    warn "fetch #{url}"
+    body = http_get(url)
+    File.binwrite(path, body)
+    path
+  end
+
+  def extract(archive)
+    dir = File.join(cache, File.basename(archive, ".tar.gz"))
+    return dir if Dir.exist?(dir)
+
+    FileUtils.mkdir_p(dir)
+    out, status = Open3.capture2e("tar", "-xzf", archive, "-C", dir, "--strip-components=1")
+    raise "tar failed: #{out}" unless status.success?
+
+    dir
+  end
+
+  def fetch_json(url)
+    path = File.join(cache, Digest::SHA256.hexdigest(url)[0, 16] + ".json")
+    return JSON.parse(File.read(path)) if File.exist?(path)
+
+    warn "fetch #{url}"
+    body = http_get(url)
+    File.write(path, body)
+    JSON.parse(body)
+  end
+
+  def http_get(url, limit = 5)
+    raise "too many redirects" if limit.zero?
+
+    response = Net::HTTP.get_response(URI(url))
+    case response
+    when Net::HTTPSuccess then response.body
+    when Net::HTTPRedirection then http_get(response["location"], limit - 1)
+    else raise "#{response.code} #{url}"
+    end
+  end
+
+  def report
+    by_using = formulae.group_by(&:using).transform_values(&:count)
+    known = formulae.map(&:name)
+    deps = formulae.flat_map(&:dependencies).uniq
+    unclosed = deps - known
+
+    warn ""
+    warn "wrote #{formulae.length} formulae to #{output}"
+    warn "runs.using: #{by_using.sort.map { |k, v| "#{k}=#{v}" }.join(" ")}"
+    warn "dependency edges: #{formulae.sum { |f| f.uses.length }} into #{deps.length} formulae"
+    warn "unclosed dependencies: #{unclosed.empty? ? "none" : unclosed.join(", ")}"
+  end
+end
+
+if $PROGRAM_NAME == __FILE__
+  options = { output: "Formula", cache: ".generate-cache" }
+  OptionParser.new do |o|
+    o.on("-o", "--output DIR", "Formula output directory") { |v| options[:output] = v }
+    o.on("-c", "--cache DIR", "Download cache directory") { |v| options[:cache] = v }
+  end.parse!
+
+  FormulaGenerator.new(**options).run
+end

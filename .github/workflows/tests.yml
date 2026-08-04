@@ -19,6 +19,7 @@ jobs:
           ruby-version: "4.0"
       - run: ruby -Itest test/setup_actions_test.rb
       - run: ruby -Itest test/formulae_test.rb
+      - run: ruby -Itest test/generate_formulae_test.rb
 
   formulae:
     strategy:
@@ -64,6 +65,7 @@ jobs:
       - if: runner.os == 'Linux'
         run: echo "/home/linuxbrew/.linuxbrew/bin" >> "$GITHUB_PATH"
       - run: brew tap --custom-remote andrew/actions "file://$GITHUB_WORKSPACE"
+      - run: brew trust andrew/actions
       - uses: ./
         with:
           brewfile: examples/Actionfile
