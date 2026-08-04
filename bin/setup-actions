@@ -99,7 +99,7 @@ end
 
 if $PROGRAM_NAME == __FILE__
   workspace = Pathname.new(ENV.fetch("GITHUB_WORKSPACE", Dir.pwd))
-  brewfile = workspace.join(ENV.fetch("ACTIONS_BREWFILE", ".github/Actionfile"))
-  destination = workspace.join(ENV.fetch("ACTIONS_DIRECTORY", ".brew-actions"))
+  brewfile = workspace.join(ENV.fetch("HOMEBREW_ACTIONS_BREWFILE", ".github/Actionfile"))
+  destination = workspace.join(ENV.fetch("HOMEBREW_ACTIONS_DIRECTORY", ".brew-actions"))
   ActionsSetup.new(brewfile: brewfile, destination: destination).run
 end

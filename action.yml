@@ -13,6 +13,6 @@ runs:
     - name: Install actions
       shell: bash
       env:
-        ACTIONS_BREWFILE: ${{ inputs.brewfile }}
-        ACTIONS_DIRECTORY: ${{ inputs.directory }}
+        HOMEBREW_ACTIONS_BREWFILE: ${{ inputs.brewfile }}
+        HOMEBREW_ACTIONS_DIRECTORY: ${{ inputs.directory }}
       run: brew ruby "$GITHUB_ACTION_PATH/bin/setup-actions"
