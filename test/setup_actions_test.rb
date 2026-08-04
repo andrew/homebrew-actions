@@ -14,7 +14,7 @@ class ActionsSetupTest < Minitest::Test
     @config = File.join(@directory, "brew.json")
     @brew = File.join(@directory, "brew")
 
-    create_formula("pre-commit-action", "uses: $/../actions-cache\n")
+    create_formula("pre-commit-action", "uses: ./.brew-actions/actions-cache\n")
     create_formula("actions-cache", "runs:\n  using: node20\n")
     File.write(File.join(@prefixes, "actions-cache", ".metadata"), "copied\n")
     File.write(@brewfile, <<~RUBY)

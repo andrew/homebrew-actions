@@ -57,7 +57,7 @@ class ActionFormula
     lines << ""
     lines << "  def install"
     uses.each do |u|
-      target = "$/../#{u[:owner]}-#{u[:repo]}".downcase
+      target = "./.brew-actions/#{u[:owner]}-#{u[:repo]}".downcase
       target += "/#{u[:subdir]}" if u[:subdir]
       lines << "    inreplace #{action_file.inspect},"
       lines << "      #{u[:raw].inspect},"
